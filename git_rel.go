@@ -1,7 +1,7 @@
 package main
 
 import (
-	// "bufio"
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"os"
 
-	//"strings"
+	"strings"
 	"time"
 
 	"github.com/gojektech/heimdall/v6/httpclient"
@@ -20,53 +20,61 @@ const (
 	minor = "minor"
 	major = "major"
 
-	reqTimeout         = 2000 * time.Millisecond
-	githubAPIBaseURI   = "https://api.github.com"
-	githubLoginBaseURI = "https://github.com/login"
+	reqTimeout            = 2 * time.Second
+	githubAPIBaseURI      = "https://api.github.com"
+	githubLoginBaseURI    = "https://github.com/login"
+	githubClientID        = "a94fb79ee75e0a953d10"
+	githubDeviceGrantType = "urn:ietf:params:oauth:grant-type:device_code"
 )
 
 func main() {
 
-	_ =
+	versionFlgPtr :=
 		flag.String("version", patch, "what kind of release to make (major / minor / patch)")
 	flag.Parse()
 
-	_ = flag.Args()[0]
+	repoName := flag.Args()[0]
 
-	authDataChan := make(chan authData, 1)
+	if validateVersionInput(*versionFlgPtr) {
+		authDataChan := make(chan authData, 1)
+		authTokenChan := make(chan authToken, 1)
 
-	err := getAuthData(authDataChan)
-	if err != nil {
-		panic(err)
+		err := getAuthData(authDataChan)
+		if err != nil {
+			panic(err)
+		}
+
+		data := <-authDataChan
+		loginPrompt(&data)
+		err = pollForAuthToken(&data, authTokenChan)
+		if err != nil {
+			panic(err)
+		}
+		token := <-authTokenChan
+
+		rel, tagErr := createOrUpdateTag(repoName, *versionFlgPtr, &token)
+		if tagErr != nil {
+			panic(tagErr)
+		} else {
+			scanner := bufio.NewScanner(os.Stdin)
+			fmt.Printf("publish new release? (%s) [y/N]: ", rel.String())
+			scanner.Scan()
+			confirm := strings.ToLower(scanner.Text())
+
+			if confirmRelease(confirm) {
+				pubErr := publishRelease(repoName, rel, &token)
+				if pubErr != nil {
+					panic(pubErr)
+				} else {
+					fmt.Printf("successfully published release: %s\n", rel.String())
+				}
+			} else {
+				fmt.Println("Aborting publish of release")
+			}
+		}
+	} else {
+		fmt.Println("version must be major, minor or patch")
 	}
-
-	data := <-authDataChan
-	loginPrompt(&data)
-
-	// if validateVersionInput(*versionFlgPtr) {
-	// 	rel, tagErr := createOrUpdateTag(repoName, *versionFlgPtr)
-	// 	if tagErr != nil {
-	// 		panic(tagErr)
-	// 	} else {
-	// 		scanner := bufio.NewScanner(os.Stdin)
-	// 		fmt.Printf("publish new release? (%s) [y/N]: ", rel.String())
-	// 		scanner.Scan()
-	// 		confirm := strings.ToLower(scanner.Text())
-
-	// 		if confirmRelease(confirm) {
-	// 			pubErr := publishRelease(repoName, rel)
-	// 			if pubErr != nil {
-	// 				panic(pubErr)
-	// 			} else {
-	// 				fmt.Printf("successfully published release: %s\n", rel.String())
-	// 			}
-	// 		} else {
-	// 			fmt.Println("Aborting publish of release")
-	// 		}
-	// 	}
-	// } else {
-	// 	fmt.Println("version must be major, minor or patch")
-	// }
 
 }
 
@@ -78,10 +86,10 @@ func validateVersionInput(version string) bool {
 	return version == patch || version == minor || version == major
 }
 
-func createOrUpdateTag(repo, version string) (rel release, err error) {
+func createOrUpdateTag(repo, version string, token *authToken) (rel release, err error) {
 	client := createHTTPClient()
 	uri := releaseURI(repo)
-	headers := createAuthorisedHeaders()
+	headers := createAuthorisedHeaders(token)
 
 	resp, err := client.Get(uri, headers)
 	if err != nil || resp.StatusCode != 200 {
@@ -95,17 +103,17 @@ func createOrUpdateTag(repo, version string) (rel release, err error) {
 		// Get a release struct from the current tag
 		releaseFromString(target[0].TagName, &rel)
 	}
-	fmt.Printf("current version: %s\n", rel)
+	fmt.Printf("Current version: %s\n", rel)
 	incrementRelease(version, &rel)
 
-	fmt.Printf("new version: %s\n", rel)
+	fmt.Printf("New version: %s\n", rel)
 	return rel, err
 }
 
-func publishRelease(repo string, rel release) error {
+func publishRelease(repo string, rel release, token *authToken) error {
 	client := createHTTPClient()
 	uri := releaseURI(repo)
-	headers := createAuthorisedHeaders()
+	headers := createAuthorisedHeaders(token)
 	relReq := releasePostRequest{
 		TagName: rel.String(),
 		Name:    rel.String(),
@@ -145,10 +153,9 @@ func createUnauthorisedHeaders() http.Header {
 	return headers
 }
 
-func createAuthorisedHeaders() http.Header {
-	token := "token " + os.Getenv("GITHUB_TOKEN")
+func createAuthorisedHeaders(token *authToken) http.Header {
 	var headers http.Header = make(map[string][]string)
-	headers.Add("Authorization", token)
+	headers.Add("Authorization", token.AsHTTPHeaderValue())
 	headers.Add("Accept", "application/vnd.github.v3+json")
 	return headers
 }
