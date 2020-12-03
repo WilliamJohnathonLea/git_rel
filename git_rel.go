@@ -50,7 +50,12 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+
 		token := <-authTokenChan
+		err = saveAuthToken(&token)
+		if err != nil {
+			panic(err)
+		}
 
 		rel, tagErr := createOrUpdateTag(repoName, *versionFlgPtr, &token)
 		if tagErr != nil {

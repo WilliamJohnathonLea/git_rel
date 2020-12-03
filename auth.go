@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
 )
 
 type authDataRequest struct {
@@ -111,6 +113,20 @@ func pollForAuthToken(authData *authData, out chan<- authToken) error {
 	}
 
 	out <- target
+
+	return nil
+}
+
+func saveAuthToken(token *authToken) error {
+	js, err := json.Marshal(token)
+	if err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(os.Getenv("HOME") + "/.git_rel_token.json", js, 0600)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
