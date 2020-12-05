@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"time"
 )
 
 type authDataRequest struct {
@@ -17,7 +18,7 @@ type authData struct {
 	DeviceCode      string `json:"device_code"`
 	UserCode        string `json:"user_code"`
 	VerificationURI string `json:"verification_uri"`
-	ExpiresIn       uint   `json:"expires_in"`
+	ExpiresIn       int64  `json:"expires_in"`
 	Interval        uint   `json:"interval"`
 }
 
@@ -31,6 +32,7 @@ type authToken struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
 	Scope       string `json:"scope"`
+	ExpiresAt    int64 `json:"expires_at"`
 }
 
 func (t authToken) AsHTTPHeaderValue() string {
@@ -111,6 +113,8 @@ func pollForAuthToken(authData *authData, out chan<- authToken) error {
 	if len(target.AccessToken) == 0 {
 		return fmt.Errorf("No access token received")
 	}
+
+	target.ExpiresAt = time.Now().Unix() + authData.ExpiresIn
 
 	out <- target
 
