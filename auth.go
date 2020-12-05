@@ -32,7 +32,7 @@ type authToken struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
 	Scope       string `json:"scope"`
-	ExpiresAt    int64 `json:"expires_at"`
+	ExpiresAt   int64  `json:"expires_at"`
 }
 
 func (t authToken) AsHTTPHeaderValue() string {
@@ -127,10 +127,32 @@ func saveAuthToken(token *authToken) error {
 		return err
 	}
 
-	err = ioutil.WriteFile(os.Getenv("HOME") + "/.git_rel_token.json", js, 0600)
+	err = ioutil.WriteFile(tokenFile(), js, 0600)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func getLocalAuthToken() (result authToken, isValid bool) {
+	tokenBytes, err := ioutil.ReadFile(tokenFile())
+	if err != nil {
+		return
+	}
+	
+	err = json.Unmarshal(tokenBytes, &result)
+	if err != nil {
+		return
+	}
+
+	if time.Now().Unix() > result.ExpiresAt {
+		return
+	}
+
+	return result, true
+}
+
+func tokenFile() string {
+	return os.Getenv("HOME")+"/.git_rel_token.json"
 }

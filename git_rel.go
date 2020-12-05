@@ -28,6 +28,7 @@ const (
 )
 
 func main() {
+	var err error
 
 	versionFlgPtr :=
 		flag.String("version", patch, "what kind of release to make (major / minor / patch)")
@@ -39,16 +40,21 @@ func main() {
 		authDataChan := make(chan authData, 1)
 		authTokenChan := make(chan authToken, 1)
 
-		err := getAuthData(authDataChan)
-		if err != nil {
-			panic(err)
-		}
+		localToken, isValid := getLocalAuthToken()
+		if isValid {
+			authTokenChan <- localToken
+		} else {
+			err = getAuthData(authDataChan)
+			if err != nil {
+				panic(err)
+			}
 
-		data := <-authDataChan
-		loginPrompt(&data)
-		err = pollForAuthToken(&data, authTokenChan)
-		if err != nil {
-			panic(err)
+			data := <-authDataChan
+			loginPrompt(&data)
+			err = pollForAuthToken(&data, authTokenChan)
+			if err != nil {
+				panic(err)
+			}
 		}
 
 		token := <-authTokenChan
